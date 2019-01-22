@@ -21,7 +21,31 @@ import 'quote.dart';
 import 'render_context.dart';
 import 'scope.dart';
 import 'selection.dart';
+import 'selection_controls.dart';
 import 'theme.dart';
+
+/// Operation mode of a Zefyr editable control.
+enum ZefyrMode {
+  /// Editing mode provides full access to all editing features: keyboard,
+  /// editor toolbar with formatting tools, selection controls and selection
+  /// toolbar with clipboard tools.
+  ///
+  /// Tapping on links in edit mode shows selection toolbar with contextual
+  /// actions instead of launching the link in a web browser.
+  edit,
+
+  /// Select-only mode allows users to select a range of text and have access
+  /// to selection toolbar including clipboard tools, contextual link tools
+  /// (open link, copy link) and any custom actions registered by
+  /// current [ZefyrSelectionControls] implementation.
+  ///
+  /// Tapping on links in select-only mode launches the link in a web browser.
+  select,
+
+  /// View-only mode disables almost all user interactions except the ability
+  /// to launch links in a web browser when tapped.
+  view,
+}
 
 /// Core widget responsible for editing Zefyr documents.
 ///
@@ -37,17 +61,19 @@ class ZefyrEditableText extends StatefulWidget {
     @required this.focusNode,
     @required this.imageDelegate,
     this.autofocus: true,
-    this.enabled: true,
+    this.mode: ZefyrMode.edit,
     this.padding: const EdgeInsets.symmetric(horizontal: 16.0),
     this.physics,
+    this.selectionControls,
   }) : super(key: key);
 
   final ZefyrController controller;
   final FocusNode focusNode;
   final ZefyrImageDelegate imageDelegate;
   final bool autofocus;
-  final bool enabled;
+  final ZefyrMode mode;
   final ScrollPhysics physics;
+  final ZefyrSelectionControls selectionControls;
 
   /// Padding around editable area.
   final EdgeInsets padding;
@@ -104,15 +130,8 @@ class _ZefyrEditableTextState extends State<ZefyrEditableText>
       child: body,
     );
 
-    final overlay = Overlay.of(context, debugRequiredFor: widget);
     final layers = <Widget>[scrollable];
-    if (widget.enabled) {
-      layers.add(ZefyrSelectionOverlay(
-        controller: widget.controller,
-        controls: Platform.isIOS ? cupertinoTextSelectionControls : materialTextSelectionControls,
-        overlay: overlay,
-      ));
-    }
+    layers.add(ZefyrSelectionOverlay(controls: widget.selectionControls));
 
     return Stack(fit: StackFit.expand, children: layers);
   }
@@ -128,11 +147,11 @@ class _ZefyrEditableTextState extends State<ZefyrEditableText>
   void didUpdateWidget(ZefyrEditableText oldWidget) {
     super.didUpdateWidget(oldWidget);
     _updateSubscriptions(oldWidget);
-    if (!_didAutoFocus && widget.autofocus && widget.enabled) {
+    if (!_didAutoFocus && widget.autofocus && widget.mode == ZefyrMode.edit) {
       FocusScope.of(context).autofocus(focusNode);
       _didAutoFocus = true;
     }
-    if (!widget.enabled && focusNode.hasFocus) {
+    if (widget.mode != ZefyrMode.edit && focusNode.hasFocus) {
       _didAutoFocus = false;
       focusNode.unfocus();
     }
@@ -239,7 +258,7 @@ class _ZefyrEditableTextState extends State<ZefyrEditableText>
 
   // Triggered for both text and selection changes.
   void _handleLocalValueChange() {
-    if (widget.enabled &&
+    if (widget.mode == ZefyrMode.edit &&
         widget.controller.lastChangeSource == ChangeSource.local) {
       // Only request keyboard for user actions.
       requestKeyboard();
